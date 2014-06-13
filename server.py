@@ -1,10 +1,58 @@
 import json
+from itertools import islice
 from flask import Flask
 from flask import request
 from ledStrip import ledstrip
+from threading import Thread
+import Queue
+from collections import deque
+from time import sleep
 
 app = Flask(__name__)
-global leds
+
+class StateThread(Thread):
+    def __init__(self, pixel):
+        Thread.__init__(self)
+        self.pixel = pixel
+        print "Creating thread for %s" % pixel
+
+    def run(self):
+        while True:
+            global states
+            current_state = states[self.pixel]
+
+            consecutive_criticals = 0
+
+            low = max(self.pixel-2, 0)
+            high = min(self.pixel+3, 32)
+
+            for state in reversed(list(islice(states,low,high))):
+                if state == 'critical':
+                    consecutive_criticals += 1
+                else:
+                    consecutive_criticals = 0
+
+                if consecutive_criticals >= 3:
+                    current_state = 'ohcrap'
+                    break
+
+            if current_state.lower() == 'ok':
+                ok(self.pixel)
+            elif current_state.lower() == 'warning':
+                warning(self.pixel)
+            elif current_state.lower() == 'critical':
+                critical(self.pixel)
+            elif current_state.lower() == 'ohcrap':
+                leds.setPixelColorRGB(pixel=self.pixel, red=255, green=0, blue=0)
+                leds.show()
+                sleep(0.1)
+                leds.setPixelColorRGB(pixel=self.pixel, red=0, green=0, blue=0)
+                leds.show()
+                sleep(0.1)
+                continue
+            elif current_state.lower() == 'unknown':
+                unknown(self.pixel)
+            #sleep(0.1)
 
 @app.route("/")
 def hello():
@@ -12,54 +60,61 @@ def hello():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    global current_pixel
+    global states
     try:
         payload = json.loads(request.data)
         state = payload.get('details', {}).get('state')
         
-        if state.lower() == 'critical':
-            critical()
-        elif state.lower() == 'warning':
-            warning()
-        elif state.lower() == 'ok':
-            ok()
-
-        if current_pixel == 31:
-            current_pixel = 0
-            print "--1"
-            print current_pixel
-        else:
-            current_pixel += 1
-            print "--2"
-            print current_pixel
+        states.append(state.lower())
+        states.popleft()
 
         return "Success"
     except Exception, e:
-        print "Broke"
-        print e
-    return "bahsds"
+        print "Exception: %s" % e.message
+    
+    return "All Good"
 
-def ok():
-    leds.setPixelColorRGB(pixel=current_pixel, red=0, green=255, blue=0)
+def unknown(pixel):
+    leds.setPixelColorRGB(pixel=pixel, red=0, green=0, blue=0)
     leds.show()
 
-def warning():
-    leds.setPixelColorRGB(pixel=current_pixel, red=255, green=153, blue=0)
+def ok(pixel):
+    leds.setPixelColorRGB(pixel=pixel, red=0, green=255, blue=0)
     leds.show()
 
-def critical():
-    leds.setPixelColorRGB(pixel=current_pixel, red=255, green=0, blue=0)
+def warning(pixel):
+    leds.setPixelColorRGB(pixel=pixel, red=255, green=255, blue=0)
     leds.show()
+
+def critical(pixel):
+    leds.setPixelColorRGB(pixel=pixel, red=255, green=0, blue=0)
+    leds.show()
+
+def ohcrap(pixel):
+    while True:
+        leds.setPixelColorRGB(pixel=pixel, red=255, green=0, blue=0)
+        leds.show()
 
 def all_red():
     for x in xrange(32):
         leds.setPixelColorRGB(pixel=x, red=0, green=255, blue=0)
         leds.show()
 
-if __name__ == "__main__":
-    spidev = file("/dev/spidev0.0", "wb")
-    leds = ledstrip.LEDStrip(pixels=32, spi=spidev)
-    current_pixel = 0
+@app.before_first_request
+def init():
+    global states
+    global leds
+    number_of_lights = 32
 
-    app.config['DEBUG'] = True
+    states = deque(['unknown']*number_of_lights)
+
+    spidev = file("/dev/spidev0.0", "wb")
+    leds = ledstrip.LEDStrip(pixels=number_of_lights, spi=spidev)
+
+    threads = [ StateThread(x) for x in range(number_of_lights)]
+    for thread in threads:
+        thread.start()
+
+if __name__ == "__main__":
+    #app.config['DEBUG'] = True
     app.run(host='0.0.0.0', port=5000)
