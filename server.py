@@ -9,6 +9,7 @@ from klein import Klein
 from twisted.internet import reactor
 
 BRIGHTNESS=50
+SHIFTTIME = 5*60
 
 #app = Flask(__name__)
 app = Klein()
@@ -42,19 +43,19 @@ def ok(pixel, timeoutFlag = False):
     leds.setPixelColorRGB(pixel=pixel, red=0, green=BRIGHTNESS, blue=0)
     leds.show()
     if timeoutFlag:
-        timeout.reset(10) 
+        timeout.reset(SHIFTTIME) 
 
 def warning(pixel, timeoutFlag = False):
     leds.setPixelColorRGB(pixel=pixel, red=BRIGHTNESS, green=(BRIGHTNESS/3), blue=0)
     leds.show()
     if timeoutFlag:
-        timeout.reset(10) 
+        timeout.reset(SHIFTTIME) 
 
 def critical(pixel, timeoutFlag = False):
     leds.setPixelColorRGB(pixel=pixel, red=BRIGHTNESS, green=0, blue=0)
     leds.show()
     if timeoutFlag:
-        timeout.reset(10)
+        timeout.reset(SHIFTTIME)
 
 def all_red():
     for x in xrange(32):
@@ -67,7 +68,7 @@ def shiftOne():
     states.append('iamgonnapopsome')
     states.popleft()
     turnOnTheLights(states)
-    timeout = reactor.callLater(5*60,shiftOne)
+    timeout = reactor.callLater(SHIFTTIME,shiftOne)
 
 def turnOnTheLights(states, timeoutFlag = False):
     for pixel in xrange(len(states)):
@@ -86,7 +87,7 @@ def init():
     global leds
     global timeout
     number_of_lights = 32
-    timeout = reactor.callLater(5*60,shiftOne)
+    timeout = reactor.callLater(SHIFTTIME,shiftOne)
 
     states = deque(['unknown']*number_of_lights)
 
