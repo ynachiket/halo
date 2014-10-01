@@ -1,43 +1,33 @@
 import json
 from itertools import islice
-from flask import Flask
-from flask import request
 from ledStrip import ledstrip
 from threading import Thread
 import Queue
 from collections import deque
 from time import sleep
+from klein import Klein
+from twisted.internet import reactor
 
 BRIGHTNESS=50
 
-app = Flask(__name__)
+#app = Flask(__name__)
+app = Klein()
 
 @app.route("/")
 def hello():
     return "Hello World!"
 
 @app.route("/webhook", methods=["POST"])
-def webhook():
+def webhook(request):
     global states
     try:
-        payload = json.loads(request.data)
+        payload = json.loads(request.content.read())
         state = payload.get('details', {}).get('state')
 
-  print 'got state: ', state
+        print 'got state: ', state
         states.append(state.lower())
         states.popleft()
-
-  for pixel in xrange(len(states)):
-            current_state = states[pixel]
-            if current_state.lower() == 'ok':
-                ok(pixel)
-            elif current_state.lower() == 'warning':
-                warning(pixel)
-            elif current_state.lower() == 'critical':
-                critical(pixel)
-            else:
-                unknown(pixel)
-
+        turnOnTheLights(states, timeoutFlag = True)
         return "Success"
     except Exception, e:
         print "Exception: %s" % e.message
@@ -48,28 +38,55 @@ def unknown(pixel):
     leds.setPixelColorRGB(pixel=pixel, red=0, green=0, blue=0)
     leds.show()
 
-def ok(pixel):
+def ok(pixel, timeoutFlag = False):
     leds.setPixelColorRGB(pixel=pixel, red=0, green=BRIGHTNESS, blue=0)
     leds.show()
+    if timeoutFlag:
+        timeout.reset(10) 
 
-def warning(pixel):
+def warning(pixel, timeoutFlag = False):
     leds.setPixelColorRGB(pixel=pixel, red=BRIGHTNESS, green=(BRIGHTNESS/3), blue=0)
     leds.show()
+    if timeoutFlag:
+        timeout.reset(10) 
 
-def critical(pixel):
+def critical(pixel, timeoutFlag = False):
     leds.setPixelColorRGB(pixel=pixel, red=BRIGHTNESS, green=0, blue=0)
     leds.show()
+    if timeoutFlag:
+        timeout.reset(10)
 
 def all_red():
     for x in xrange(32):
         leds.setPixelColorRGB(pixel=x, red=0, green=BRIGHTNESS, blue=0)
         leds.show()
 
-@app.before_first_request
+
+def shiftOne():
+    global timeout
+    states.append('iamgonnapopsome')
+    states.popleft()
+    turnOnTheLights(states)
+    timeout = reactor.callLater(5*60,shiftOne)
+
+def turnOnTheLights(states, timeoutFlag = False):
+    for pixel in xrange(len(states)):
+        current_state = states[pixel]
+        if current_state.lower() == 'ok':
+            ok(pixel, timeoutFlag)
+        elif current_state.lower() == 'warning':
+            warning(pixel, timeoutFlag)
+        elif current_state.lower() == 'critical':
+            critical(pixel, timeoutFlag)
+        else:
+            unknown(pixel) 
+   
 def init():
     global states
     global leds
+    global timeout
     number_of_lights = 32
+    timeout = reactor.callLater(5*60,shiftOne)
 
     states = deque(['unknown']*number_of_lights)
 
@@ -78,4 +95,6 @@ def init():
 
 if __name__ == "__main__":
     #app.config['DEBUG'] = True
+    init()
     app.run(host='::', port=5000)
+
